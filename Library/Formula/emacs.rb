@@ -1,11 +1,17 @@
 require 'formula'
 
+class EmacsMac < Formula
+  url 'ftp://ftp.math.s.chiba-u.ac.jp/emacs/emacs-24.3-mac-4.2.tar.gz'
+  sha256 '9288d3f1667a6e7ca9f8693b9c8470af7e50030303441decf5c8cd962f6f3213'
+end
+
 class Emacs < Formula
   homepage 'http://www.gnu.org/software/emacs/'
   url 'http://ftpmirror.gnu.org/emacs/emacs-24.3.tar.gz'
   mirror 'http://ftp.gnu.org/pub/gnu/emacs/emacs-24.3.tar.gz'
   sha256 '0098ca3204813d69cd8412045ba33e8701fa2062f4bff56bedafc064979eef41'
 
+  option "mac", "Build Mac port version of Emacs by Yamamoto Mitsaharu"
   option "cocoa", "Build a Cocoa version of emacs"
   option "srgb", "Enable sRGB colors in the Cocoa version of emacs"
   option "with-x", "Include X11 support"
@@ -53,20 +59,37 @@ class Emacs < Formula
       system "autogen/copy_autogen"
     end
 
-    if build.include? "cocoa"
+    if build.include? "cocoa" or build.include? "mac"
       # Patch for color issues described here:
       # http://debbugs.gnu.org/cgi/bugreport.cgi?bug=8402
-      if build.include? "srgb"
-        inreplace "src/nsterm.m",
-          "*col = [NSColor colorWithCalibratedRed: r green: g blue: b alpha: 1.0];",
-          "*col = [NSColor colorWithDeviceRed: r green: g blue: b alpha: 1.0];"
+      if build.include? "cocoa"
+        if build.include? "srgb"
+          inreplace "src/nsterm.m",
+            "*col = [NSColor colorWithCalibratedRed: r green: g blue: b alpha: 1.0];",
+            "*col = [NSColor colorWithDeviceRed: r green: g blue: b alpha: 1.0];"
+        end
+        args << "--with-ns" << "--disable-ns-self-contained"
       end
 
-      args << "--with-ns" << "--disable-ns-self-contained"
+      if build.include? "mac"
+        pwd = Dir.pwd
+        EmacsMac.new.brew {
+          cp_r Dir["mac"], "#{pwd}/"
+          cp Dir["src/*"], "#{pwd}/src/"
+          cp Dir["lisp/term/mac-win.el"], "#{pwd}/lisp/term/"
+          cp "patch-mac", "#{pwd}/"
+        }
+        safe_system '/usr/bin/patch', '-p0', '-i', 'patch-mac'
+
+        args << "--with-mac" << "--enable-mac-app=#{prefix}"
+      end
+
       system "./configure", *args
       system "make"
       system "make install"
-      prefix.install "nextstep/Emacs.app"
+      if build.include? "cocoa"
+        prefix.install "nextstep/Emacs.app"
+      end
 
       # Don't cause ctags clash.
       do_not_install_ctags
@@ -101,7 +124,7 @@ class Emacs < Formula
 
   def caveats
     s = ""
-    if build.include? "cocoa"
+    if build.include? "cocoa" or build.include? "mac"
       s += <<-EOS.undent
         Emacs.app was installed to:
           #{prefix}
